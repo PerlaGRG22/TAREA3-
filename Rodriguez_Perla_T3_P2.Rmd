@@ -1,0 +1,77 @@
+---
+title: "Red Booleana"
+author: "Perla Rodríguez"
+date: '2022-03-21'
+output: rmdformats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Genera una red de regulacíon transripcional con 5 nodos y, al menos, 7 interacciones regulatorias, escoge al menos 3 inhibiciones)
+
+Lo primero que haremos será instalar nuestras librerias y llamarlas: 
+
+```{r}
+library(BoolNet)
+library(igraph)
+```
+
+A continuación generamos un archivo de texto con las reglas de operadores booleanos y lo cargamos a r con el siguiente código
+
+```{r}
+#La funcion loadNetwork nos permite convertir un archivo de texto a una red booleana 
+
+reg_tran<-loadNetwork("Rodriguez_Perla_T3_P2/RED.txt") 
+```
+Imprimimos nuestra red para poder visualizarla
+```{r}
+plotNetworkWiring(reg_tran)
+```
+### Escribe las reglas para generar una red de tipo Boolnet.
+Con el siguiente código podemos cargar nuestras reglas de manera automática y visualiarlas en R
+
+```{r}
+tabla_verdad<-truthTableToSymbolic(reg_tran)
+print(tabla_verdad)
+```
+
+###  Encuentra todos los atractores de tu red
+
+Con la función **getAttractors** identiicamos los atractores de nuestra red y sus cuencas de atracción.
+```{r}
+atractores<- getAttractors(reg_tran)
+atractores
+```
+Como podemos observar en el resultado anterior, teneos 2 atractores, el atractor 1 se compone de una cuenca de 28 estados y el atractor 2 se compone de una cuenca de 4 estados.
+
+Si utilizamos el siguiente código podemos visualizar graficamente los estados de nuestros genes en nuestros atractores, el rojo indica que nuestros genes estan apagados y el verde que los genes están encendidos.  
+```{r}
+plotAttractors(atractores)
+```
+
+### ¿Cuál serıa el estado final m ́as probable
+
+Una cuenca de atraccion s define como los estados que conducen a este atractor, en nuestro caso tenemos 2 atractores, el *ATRACTOR 1* compuesto por 28 estados y el *ATRACTOR2* compuesto por 4 estados, lo que indica que nuestro atractor 1 tiene una fuerza más grande de atracción y la probabilidad de caer en él es mayor que la de caer en el atractor 2, por lo que nuestro estado más probable sería el *ATRACTOR1*: 01011 en orden ABCDE,considerando al 1 como encendido y el 0 como apagado. 
+
+Lo anterior lo podemos comprobar con la siguiente funcion: 
+```{r}
+plotSequence(network=reg_tran,
+             startState=rep(1,5),
+             includeAttractorStates="all")
+```
+Se observa la visualizacion de los estados dado una condicion inicial (t=0), donde todos los genes estan encendidos, en el t=1, se apaga el gen A y en el t=2, nuestra red cae en el *ATRACTOR1* (01011).
+
+### Dibuja todos los estados y sus atractores
+
+El siguiente código nos muestra todos nuestros posibles estados, el estado siguiente y el atractor en el que caeran
+```{r}
+print(getTransitionTable(atractores))
+```
+
+Y con este comando podemos visualizar los atractores de nuestra red de manera gráfica 
+```{r}
+plotStateGraph(atractores, main = "RED", layout = layout.fruchterman.reingold)
+```
+
