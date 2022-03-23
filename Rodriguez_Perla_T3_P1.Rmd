@@ -1,0 +1,158 @@
+---
+title: "Rodriguez_Perla_T3_Pi.R"
+author: "Perla Rodríguez"
+date: '2022-03-21'
+output: rmdformats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## WGCNA
+
+b)A contnuación seguiremos el tutorial que viene en la siguiente dirección. <https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/Tutorials/>.
+
+## I. Network analysis of liver expression data from female mice: finding modules related to body weight
+
+Los datos son mediciones de la expresión génica de hígados de ratones hembra de un cruce F2 específico. Para obtener una descripción detallada de los datos y las implicaciones biológicas, remitimos al lector a Ghazalpour et al (2006), Integrating Genetics and Network Analysis to Characterize Genes Related to Mouse Weight. Observamos que el conjunto de datos contiene 3600 perfiles de expresión medidos. Estos se filtraron de los más de 20,000 perfiles originales manteniendo solo las sondas más variantes y más conectadas. Además de los datos de expresión, se midieron varios rasgos cuantitativos fisiológicos para los ratones. 
+
+Se descarga la carpeta con los datos que viene indicada en el tutorial y se le dice a R que cambie de directorio de trabajo a esta carpeta. Por lo que me voy a la terminal y cambio a mi directorio donde descargue estos datos CON EL SIGUIENTE COMANDO:
+
+**cd FemaleLiver-Data**
+
+### I.1 CARGAR LA LIBRERIA Y LIMPIAR LOS DATOS 
+
+```{r}
+library("WGCNA")
+
+# El siguiente comando no debe omitirse 
+options(stringsAsFactors = FALSE);
+
+```
+
+Ahora leemos nuestros datos 
+```{r}
+femData <- read.csv("FemaleLiver-Data/LiverFemale3600.csv");
+```
+
+Como nuestros datos precargados tienen elementos que no nos sirven, ahora eliminamos los datos auxiliares y transponemos los datos de expresión para su posterior análisis.
+
+```{r}
+datExpr0 = as.data.frame(t(femData[, -c(1:8)]));
+names(datExpr0) = femData$substanceBXH;
+rownames(datExpr0) = names(femData)[-c(1:8)];
+```
+
+### I.2 Revisar los datos para eliminar el exceso de valores perdidos y la identiicación de outliers en muestras de microarreglos. 
+
+Primero buscamos genes y muestras con demasiados valores perdidos. 
+El siguiente comando nos dice si tenemos o no valores perdidos, si la respuesta es  *TRUE* todos nuestros genes han pasado el análisis
+```{r}
+gsg <- goodSamplesGenes(datExpr0, verbose = 3);
+gsg$allOK
+```
+
+Si la respuesta es *FALSE*, eliminamoslas muestras de genes que nos causan problemas con el siguiente comando, (sin embargo para nuestros datos la respuesta ha sido *TRUE*, por lo que no será necesario utilizar el código):
+```{r}
+if (!gsg$allOK)
+{
+# Optionally, print the gene and sample names that were removed:
+if (sum(!gsg$goodGenes)>0)
+printFlush(paste("Removing genes:", paste(names(datExpr0)[!gsg$goodGenes], collapse = ", ")));
+if (sum(!gsg$goodSamples)>0)
+printFlush(paste("Removing samples:", paste(rownames(datExpr0)[!gsg$goodSamples], collapse = ", ")));
+# Remove the offending genes and samples from the data:
+datExpr0 = datExpr0[gsg$goodSamples, gsg$goodGenes]
+}
+```
+
+Ahora con el siguiente comando  agrupamos las muestras para ver si hay outliers obvios.
+```{r}
+sampleTree <- hclust(dist(datExpr0), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+sizeGrWindow(12,9)
+#pdf(file = "Plots/sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+```
+Visualizamos nuestros datos y observamos un outlier en la  muestra  F2_221. Este valor puede ser eliminado a mano o podemos usar un enfoque automático. Elejimos un corte de altura que elimine la muestra infractora, por ejemplo 15 (la línea roja en el diagrama), y usamos un corte de rama a esa altura.
+```{r}
+plot(sampleTree, main = "Cluster de muestras para detectar outliers", sub="", xlab="", cex.lab = 1.5,
+cex.axis = 1.5, cex.main = 2)
+# Ploteamos la linea para mostrar el lugar donde cortaremos
+
+abline(h = 15, col = "red");
+```
+Ahora definimos los cluster que quedarán debajo de la línea de corte.
+La variable datExpr ahora contiene los datos de expresión listos para el análisis de red
+```{r}
+clust <- cutreeStatic(sampleTree, cutHeight = 15, minSize = 10)
+table(clust)
+# El objeto clust 1 contendra las muestras que queremos conservar 
+keepSamples = (clust==1)
+datExpr <-datExpr0[keepSamples, ]
+nGenes <- ncol(datExpr)
+nSamples <- nrow(datExpr)
+```
+
+### I.3 Cargando los datos de trataientos clínicos. 
+
+Lo que sigue es leer los datos de tratamientos clínicos y hacemos coincidir las muestras para las que se midieron con las muestras de expresión.
+```{r}
+traitData = read.csv("FemaleLiver-Data/ClinicalTraits.csv");
+dim(traitData)
+names(traitData)
+# Quitar las columnas que contienen informacion que no nos sirve. 
+allTraits = traitData[, -c(31, 16)];
+allTraits = allTraits[, c(2, 11:36) ];
+dim(allTraits)
+names(allTraits)
+# Para formar un marco de datos análogo a los datos de expresión de los datos clínicos. 
+femaleSamples <- rownames(datExpr);
+traitRows <- match(femaleSamples, allTraits$Mice);
+datTraits <- allTraits[traitRows, -1];
+rownames(datTraits) <- allTraits[traitRows, 1];
+collectGarbage()
+```
+
+Ahora tenemos los datos de expresión en la variable datExpr, y los rasgos clínicos correspondientes en la variable **datTraits**. Antes de continuar con la construcción de redes y la detección de módulos, visualizamos cómo los datos clínicos se relacionan con el dendrograma de la muestra.
+
+```{r}
+# Re-clusteamos nuestras muestras 
+sampleTree2 <- hclust(dist(datExpr), method = "average")
+
+# Convertimos nuestros tratamientos a una representación de colores: El blanco significa poco, rojo: mucho y verde valores perdidos 
+traitColors <- numbers2colors(datTraits, signed = FALSE);
+
+# Ploteamos el dendograma con colores 
+plotDendroAndColors(sampleTree2, traitColors,
+groupLabels = names(datTraits),
+main = "Dendrograma de muestras y heatmap de tratamientos")
+```
+
+El último paso de este apartado es guardar los datos relevantes de expresión  y tratamientos para poder usarlos en los siguientes pasos. 
+```{r}
+save(datExpr, datTraits, file = "FemaleLiver-01-dataInput.RData")
+```
+## PREGUNTAS
+###i. En d ́onde eśta el objeto matriz de expresi ́on y de qu ́e dimensi ́on e
+s?
+La matriz de expresión se encuentra en el objeto datExpr0, y contiene solo los datos de expresion y el nombre del gen, lo que la convierte en una matriz de 135 x 3600, lo que se puede conocer con la funcion (dim)
+```{r}
+dim(datExpr0)
+```
+#### ii. ¿Por qu ́e se eliminan datos que son demasiado distintos ? (Vean la gr ́afica Sample
+clustering to detect outliers)
+
+Porque son valores atípicos (outliers) y al momento de hacer el análisis harían mucho ruido.
+
+### iii. ¿Qu ́e criterio utilizan para generar la red, es decir explica el significado de la
+variable softpower
+
+Es un método del paquete WGCNA que identifica una potencia a la que se eleva la matriz de correlación para calcular la matriz de adyacencia de la red en base al criterio de aproximación libre de escala.
+
+#### iv. ¿Por qu ́e crees que genes que pertenecen al mismo cluster son relevante?
+Porque comparten carácteristicas que los hacen comportarse de una manera similar y podemos analizar las correlaciones entre un cluster y otro, al observar las caracteristicas que comparten los grupos y en los que se dierencias y así inferimos el efecto del tratamiento (o no) en el nivel de expresión de los genes observados. 
+
